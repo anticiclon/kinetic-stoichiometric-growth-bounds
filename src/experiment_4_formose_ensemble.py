@@ -252,6 +252,13 @@ def run_ensemble(n_samples=N_SAMPLES, C1=C1_REF, seed=SEED):
         L_cota = lambda_of(S_minus, S_plus, k, bind_rx)
         L_maf = lambda_of(S_minus, S_plus, k, maf_arcs)
 
+
+
+        if bind_rx != sorted(info["act_arcs"]):
+            raise RuntimeError(f"Muestra {i}: subred óptima no conexa; "
+                               "alpha* y la norma se referirían a subredes distintas.")
+
+
         sel_cores.append(tuple(bind_rx))
         if bound > 1e-12:
             ratios.append(L_cota / bound)

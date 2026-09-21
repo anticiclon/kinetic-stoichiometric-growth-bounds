@@ -127,14 +127,20 @@ def balanced_growth_rate(M):
 
 # ---------------------------------------------------------------------------
 def growth_rate_of_subnetwork(S_minus, S_plus, k,
-                              active_arcs=None, active_nodes=None):
+                              active_arcs=None, active_nodes=None,
+                              strict=True, tol=1e-12):
     """Atajo: Λ de la subred activa. Devuelve (Lambda, M, info)."""
-    M, info = build_linear_operator(S_minus, S_plus, k, active_arcs, active_nodes)
+    M, info = build_linear_operator(S_minus, S_plus, k, active_arcs,
+                                    active_nodes, strict=strict)
     Lambda, n0 = balanced_growth_rate(M)
     info["n0"] = n0
     info["M"] = M
+    # Hipótesis del Teorema 2.8: composición de crecimiento estrictamente positiva
+    info["perron_positive"] = bool(n0.size > 0 and np.all(n0 > tol))
+    if strict and not info["perron_positive"]:
+        raise ValueError("El autovector dominante no es estrictamente positivo: "
+                         "la subred no admite crecimiento balanceado con n0 >> 0.")
     return Lambda, M, info
-
 
 # ---------------------------------------------------------------------------
 def kinetic_norm(S_minus, k, active_arcs=None, active_nodes=None):

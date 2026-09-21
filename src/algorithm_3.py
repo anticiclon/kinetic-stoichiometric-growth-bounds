@@ -174,6 +174,14 @@ def _milp_fixed(output_matrix, input_matrix, k_int, mu_j,
     m.addConstrs((x[a] <= upper_bound * z[a] for a in arcs), name="Z1")
     eps = 1.0 / upper_bound
     m.addConstrs((x[a] >= eps * z[a] for a in arcs), name="Z2")
+    
+    # --- Autonomía (eq:P-autonomy): todo nodo incidente a un arco
+    #     seleccionado pertenece a M  =>  M = N' ---
+    m.addConstrs(
+        (y[v] >= z[a]
+         for a in arcs for v in nodes
+         if input_matrix[v, a] > 0 or output_matrix[v, a] > 0),
+        name="autonomy")    
 
     # --- SUP: ||S^-||_k <= mu_j  (con enforce_norm_eq=False y mu_j holgado
     #          esta cota es inactiva => MAF global) ---
