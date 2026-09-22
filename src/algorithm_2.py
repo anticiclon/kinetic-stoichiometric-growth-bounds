@@ -200,6 +200,12 @@ def computeMAFinSubhypergraph(output_matrix, input_matrix, t_max, time_limit_ite
         #
         model.addConstr(gb.quicksum(x[a] for a in arcs) >= 1,
                     name = "at_least_one_hyperarc")
+        # Autonomía: todo nodo incidente a un arco con flujo positivo pertenece a M
+        model.addConstrs(
+            (x[a] <= upper_bound * y[v]
+             for a in arcs for v in nodes
+             if input_matrix[v, a] > 0 or output_matrix[v, a] > 0),
+            name="autonomy")
         # --------------------------------------      
   
         # Solve the model

@@ -325,6 +325,89 @@ def computeGlobalMAF(output_matrix, input_matrix, k_int, mu_max_int,
         t_max, time_limit_global, accuracy, enforce_norm_eq=False)
 
 
+
+
+
+
+
+def _next_attainable_norm(output_matrix, input_matrix, k_int, mu_upper,
+                          time_limit=60):
+    """
+    Mayor norma cinetica ENTERA mu <= mu_upper alcanzable por alguna subred
+    admisible (mismas condiciones estructurales que P(mu): autosuficiencia,
+    autonomia, no vacuidad). Devuelve (mu, certificado):
+      - (mu, True)          : mu es la mayor norma alcanzable <= mu_upper.
+      - (None, True)        : no hay ninguna norma alcanzable <= mu_upper.
+      - (mu_upper, False)   : el MILP no se probo optimo en el tiempo dado;
+                              se devuelve mu_upper para no saltarse ninguna
+                              norma alcanzable (el barrido sigue siendo exacto).
+    """
+    num_nodes, num_arcs = input_matrix.shape
+    nodes, arcs = range(num_nodes), range(num_arcs)
+    if mu_upper < 1:
+        return None, True
+    m = gb.Model("next_norm")
+    m.Params.OutputFlag = 0
+    m.Params.TimeLimit = time_limit
+    y = m.addVars(num_nodes, vtype=gb.GRB.BINARY, name="y")
+    z = m.addVars(num_arcs, vtype=gb.GRB.BINARY, name="z")
+    w = m.addVars(num_nodes, vtype=gb.GRB.BINARY, name="w")
+    mu = m.addVar(lb=0, ub=mu_upper, vtype=gb.GRB.INTEGER, name="mu")
+    m.setObjective(mu, gb.GRB.MAXIMIZE)
+
+    # Autosuficiencia expresada sobre z (equivalente a la de P(mu), donde
+    # x_a > 0 si y solo si z_a = 1)
+    m.addConstrs((y[v] <= gb.quicksum(z[a] for a in arcs if output_matrix[v, a] > 0)
+                  for v in nodes), name="ss_target")
+    m.addConstrs((y[v] <= gb.quicksum(z[a] for a in arcs if input_matrix[v, a] > 0)
+                  for v in nodes), name="ss_source")
+    m.addConstrs((z[a] <= gb.quicksum(y[v] for v in nodes if output_matrix[v, a] > 0)
+                  for a in arcs), name="ss_node_target")
+    m.addConstrs((z[a] <= gb.quicksum(y[v] for v in nodes if input_matrix[v, a] > 0)
+                  for a in arcs), name="ss_node_source")
+    m.addConstrs((y[v] >= z[a] for a in arcs for v in nodes
+                  if input_matrix[v, a] > 0 or output_matrix[v, a] > 0),
+                 name="autonomy")
+    m.addConstr(gb.quicksum(y[v] for v in nodes) >= 1, name="nonempty_M")
+    m.addConstr(gb.quicksum(z[a] for a in arcs) >= 1, name="nonempty_z")
+
+    # Norma cinetica: L_s <= mu para todo s, y L_s >= mu para alguna s (w_s = 1)
+    L = {s: gb.quicksum(int(round(input_matrix[s, a])) * int(k_int[a]) * z[a]
+                        for a in arcs) for s in nodes}
+    m.addConstrs((L[s] <= mu for s in nodes), name="SUP")
+    m.addConstr(gb.quicksum(w[s] for s in nodes) >= 1, name="INF_sum")
+    m.addConstrs((L[s] >= mu - mu_upper * (1 - w[s]) for s in nodes), name="INF")
+
+    m.optimize()
+    if m.Status == gb.GRB.INFEASIBLE:
+        return None, True
+    if m.Status == gb.GRB.OPTIMAL:
+        return int(round(mu.X)), True
+    return int(mu_upper), False
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # ----------------------------------------------------------------------
 def computeParametricSweep(input_matrix, output_matrix, k,
                            decimals=4, max_points=500,
@@ -355,6 +438,7 @@ def computeParametricSweep(input_matrix, output_matrix, k,
     (los dominados se podan); `best` sí es el óptimo global (malla exacta + cota válida).
     """
     k_int, scale = toIntegerK(k, decimals)
+    computeParametricSweep.last_n_norm_milps = 0
     mu_grid, exact = computeMuGrid(input_matrix, k_int, max_points)
     if not mu_grid:
         warnings.warn("Malla de mu vacía: revisa los datos de entrada.")
@@ -390,7 +474,28 @@ def computeParametricSweep(input_matrix, output_matrix, k,
     n_solved = n_feasible = n_infeas = n_unproven = 0
     stopped = False
 
-    for mu_j in order:
+    n_norm_milps = [0]
+
+    def _mu_sequence():
+        """Normas a visitar. Con cribado: solo las ALCANZABLES, en orden
+        descendente, obtenidas con _next_attainable_norm. Sin cribado: la malla."""
+        if not screening:
+            yield from order
+            return
+        cur = mu_grid[-1]
+        while cur >= 1:
+            nxt, _ = _next_attainable_norm(output_matrix, input_matrix, k_int,
+                                           cur, time_limit_iteration)
+            n_norm_milps[0] += 1
+            if nxt is None:
+                return
+            yield nxt
+            cur = nxt - 1
+
+    if screening:
+        exact = True   # se enumeran todas las normas alcanzables, sin malla
+
+    for mu_j in _mu_sequence():
         mu_real = mu_j / scale
 
         # --- Cribado por incumbente (cota constante, orden descendente) --------
@@ -440,9 +545,11 @@ def computeParametricSweep(input_matrix, output_matrix, k,
         warnings.warn(f"{n_unproven}/{n_feasible} subproblemas factibles no se "
                       f"resolvieron a optimalidad (timeout); el óptimo global "
                       f"podría no ser exacto.")
-
+        
+    computeParametricSweep.last_n_norm_milps = n_norm_milps[0]
     print(f"[resumen] subproblemas P(mu) resueltos={n_solved} "
           f"(factibles={n_feasible}, infactibles={n_infeas}); "
+          f"MILP de norma resueltos={n_norm_milps[0]}; "
           f"{'PARADA por cribado' if stopped else 'recorrido completo'}; "
           f"malla exacta={exact}")
     return best, results_list, exact

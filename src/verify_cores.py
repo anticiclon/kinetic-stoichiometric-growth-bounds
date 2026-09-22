@@ -37,10 +37,13 @@ def build_glyoxylate():
     Sp = np.zeros((7, 7))
     for s, r in {0: 0, 1: 1, 2: 2, 3: 6, 4: 3, 5: 4, 6: 5}.items():
         Sm[s, r] = 1
-    for r, o in {0: [1], 1: [2], 2: [3, 4], 3: [5], 4: [0], 5: [6], 6: [5]}.items():
+    # 0 OAA, 1 CIT, 2 ICIT, 3 SUC, 4 GLX, 5 MAL, 6 FUM
+    # r0 CS: OAA->CIT, r1 ACN: CIT->ICIT, r2 ICL: ICIT->SUC+GLX, r3 MS: GLX->MAL,
+    # r4 MDH: MAL->OAA, r5 FUM: FUM->MAL, r6 SDH: SUC->FUM
+    for r, o in {0: [1], 1: [2], 2: [3, 4], 3: [5], 4: [0], 5: [5], 6: [6]}.items():
         for s in o:
             Sp[s, r] += 1
-    return Sm, Sp, "glyoxylate (7 reactions)", [0, 1, 2, 3, 4, 6], 1.1487
+    return Sm, Sp, "glyoxylate (7 reactions)", [0, 1, 2, 3, 4, 5, 6], 1.1347
 
 
 def build_rtca_full():

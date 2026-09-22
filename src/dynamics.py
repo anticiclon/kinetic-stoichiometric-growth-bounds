@@ -26,6 +26,7 @@ espectral, sin necesidad de un integrador).
 
 import warnings
 import numpy as np
+import gurobipy as gb
 
 
 # ---------------------------------------------------------------------------
@@ -191,3 +192,28 @@ def empirical_growth_rate(t_grid, N):
     A = np.vstack([tt[half:], np.ones(len(tt[half:]))]).T
     slope, _ = np.linalg.lstsq(A, lg[half:], rcond=None)[0]
     return float(slope)
+
+# ---------------------------------------------------------------------------
+def exact_maf(S_minus, S_plus, arcs, tol=1e-9):
+    """MAF estricto del soporte 'arcs' con M = nodos incidentes, sin cota
+    superior sobre las intensidades. Devuelve (lo, hi) con lo <= alpha <= hi."""
+    arcs = sorted(int(a) for a in arcs)
+    nodes = sorted({v for a in arcs for v in range(S_minus.shape[0])
+                    if S_minus[v, a] > 0 or S_plus[v, a] > 0})
+    S = S_minus[np.ix_(nodes, arcs)]; T = S_plus[np.ix_(nodes, arcs)]
+
+    def feasible(a):
+        m = gb.Model(); m.Params.OutputFlag = 0
+        x = m.addVars(len(arcs), lb=1.0)                 # x >= 1, sin cota superior
+        for i in range(len(nodes)):
+            m.addConstr(gb.quicksum((T[i, j] - a * S[i, j]) * x[j]
+                                    for j in range(len(arcs))) >= 0)
+        m.optimize()
+        return m.Status == gb.GRB.OPTIMAL
+
+    lo = 0.0
+    hi = float(T.sum(axis=0).max()) + 1.0   # alpha <= max_a sum_v T_va (cada arco consume algún nodo de M)
+    while hi - lo > tol:
+        a = 0.5 * (lo + hi)
+        lo, hi = (a, hi) if feasible(a) else (lo, a)
+    return lo, hi

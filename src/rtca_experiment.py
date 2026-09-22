@@ -129,6 +129,26 @@ FOOD_MIN = [0, 2]
 
 
 # ======================================================================
+# (C) Ciclo del GLIOXILATO — 7 especies, 7 reacciones (Barenholz et al. 2017)
+# ======================================================================
+SP_GLX = ["OAA", "CIT", "ICIT", "SUC", "GLX", "MAL", "FUM"]
+S_minus_glx = np.zeros((7, 7)); S_plus_glx = np.zeros((7, 7))
+for s, r in {0: 0, 1: 1, 2: 2, 3: 6, 4: 3, 5: 4, 6: 5}.items():
+    S_minus_glx[s, r] = 1
+for r, outs in {0: [1], 1: [2], 2: [3, 4], 3: [5], 4: [0], 5: [5], 6: [6]}.items():
+    for s in outs:
+        S_plus_glx[s, r] += 1
+CLASS_GLX = {
+    0: "ligacion",        # citrato sintasa (condensación con acetil-CoA)
+    1: "isomerizacion",   # aconitasa
+    2: "escision",        # isocitrato liasa
+    3: "ligacion",        # malato sintasa (condensación con acetil-CoA)
+    4: "reduccion",       # malato deshidrogenasa (redox)
+    5: "deshidratacion",  # fumarasa (hidratación)
+    6: "reduccion",       # succinato deshidrogenasa (redox)
+}
+
+# ======================================================================
 # alpha* por ecuación característica (verificado por root-finding)
 # ======================================================================
 def alpha_star_from_poly(coeffs, name):
@@ -144,6 +164,8 @@ ALPHA_MIN = alpha_star_from_poly([1, 0, -1, -1], "min")
 # Completo: alpha^11 - alpha^3 - 1 = 0
 ALPHA_FULL = alpha_star_from_poly(
     [1, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1], "full")
+# Glioxilato: alpha^6 - alpha - 1 = 0
+ALPHA_GLX = alpha_star_from_poly([1, 0, 0, 0, 0, -1, -1], "glx")
 
 
 # ======================================================================
@@ -169,7 +191,7 @@ def sample_k(classes, rng):
 
 
 def run_ensemble(S_minus, S_plus, classes, alpha_star, name,
-                 n=200, seed=0):
+                 n=200, seed=0, species_names=None):
     nS, nR = S_minus.shape
     arcs = list(range(nR))
     nodes = list(range(nS))
@@ -200,7 +222,8 @@ def run_ensemble(S_minus, S_plus, classes, alpha_star, name,
     frac_tiny = np.mean(taus < 0.05)
     print(f"  fracción con tau<0.05 : {100*frac_tiny:.0f}%")
     print(f"  especie que alcanza la norma (consumo máx), frecuencia:")
-    names = SP_FULL if nS == 11 else SP_MIN
+    # names = SP_FULL if nS == 11 else SP_MIN
+    names = species_names if species_names is not None else (SP_FULL if nS == 11 else SP_MIN)
     for s, c in sorted(normspec_counter.items(), key=lambda t: -t[1]):
         print(f"      {names[s]:6s} {100*c/n:5.0f}%")
     return taus
@@ -238,6 +261,9 @@ if __name__ == "__main__":
                  "rTCA MÍNIMO (núcleo lumpeado C4/C6/C2)")
     run_ensemble(S_minus_full, S_plus_full, CLASS_FULL, ALPHA_FULL,
                  "rTCA COMPLETO (11 especies, 11 reacciones)")
+    
+    run_ensemble(S_minus_glx, S_plus_glx, CLASS_GLX, ALPHA_GLX,
+                 "GLIOXILATO (7 especies, 7 reacciones)", species_names=SP_GLX)
 
     # export para el sweep (Gurobi) del usuario
     _repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
